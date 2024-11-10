@@ -10,7 +10,7 @@ simple-monaco-editor/
 ├── editor.js               # JavaScript to initialize and configure the editor
 ├── languages.js            # Language options for the editor
 ├── themes/                 # Directory for custom themes
-│   ├── themes.js           # Aggregates all custom themes
+│   ├── index.js           # Aggregates all custom themes
 │   └── one-dark-pro.js     # Example custom theme (One Dark Pro)
 ├── monaco-editor/          # Monaco Editor core files (minified)
 │   └── min/                # Required minified build for deployment
@@ -33,7 +33,7 @@ simple-monaco-editor/
 
 To add more themes:
 1. Create a new `.js` file in the `themes/` directory and define the theme data.
-2. Add the theme to `themes.js` by importing it and adding it to the `customThemes` array.
+2. Add the theme to `index.js` by importing it and adding it to the `customThemes` array.
 
 Example of a theme file:
 
