@@ -77,6 +77,22 @@ function initializeEditor(customThemes = [], languages = []) {
             lineHeight: 20,
         });
 
+        // Save content on every change
+        const saveStatus = document.getElementById('save-status');
+        let saveTimeout;
+
+        editor.onDidChangeModelContent(() => {
+            const editorContent = editor.getValue();
+            localStorage.setItem('editorContent', editorContent);
+
+            // Update save status
+            saveStatus.textContent = 'Saving...';
+            clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(() => {
+                saveStatus.textContent = 'Saved';
+            }, 500);
+        });
+
         // Event listeners for theme and language changes
         themeSelect.addEventListener('change', event => {
             const selectedTheme = event.target.value;
@@ -120,9 +136,3 @@ function populateSelect(selectElement, options, storageKey, defaultValue) {
 function getInitialEditorContent() {
     return localStorage.getItem('editorContent') || '# Start Writing here\n';
 }
-
-// Autosave editor content
-window.addEventListener('beforeunload', () => {
-    const editorContent = monaco.editor.getModels()[0].getValue();
-    localStorage.setItem('editorContent', editorContent);
-});
