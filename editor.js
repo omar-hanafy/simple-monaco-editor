@@ -73,24 +73,43 @@ function initializeEditor(customThemes = [], languages = []) {
             padding: { top: 20 },
             automaticLayout: true,
             fontFamily: 'JetBrains Mono, monospace',
+            formatOnType: true,
+            formatOnPaste: true,
             fontSize: 14,
             lineHeight: 20,
+            minimap: {
+                enabled: true,
+                side: "right",
+                renderCharacters: false
+            },
+            quickSuggestions: {
+                other: true,
+                comments: true,
+                strings: true
+            },
+            autoIndent: "full",
+            
         });
 
-        // Save content on every change
+        // Save content on every change with performance optimization
         const saveStatus = document.getElementById('save-status');
         let saveTimeout;
+        let saveInProgress = false;
 
         editor.onDidChangeModelContent(() => {
             const editorContent = editor.getValue();
-            localStorage.setItem('editorContent', editorContent);
 
-            // Update save status
-            saveStatus.textContent = 'Saving...';
+            if (!saveInProgress) {
+                saveInProgress = true;
+                saveStatus.textContent = 'Saving...';
+            }
+
             clearTimeout(saveTimeout);
             saveTimeout = setTimeout(() => {
+                localStorage.setItem('editorContent', editorContent);
                 saveStatus.textContent = 'Saved';
-            }, 500);
+                saveInProgress = false;
+            }, 1000); // Debounce: Save after 1 second of inactivity
         });
 
         // Event listeners for theme and language changes
