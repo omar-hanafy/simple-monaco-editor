@@ -4,13 +4,19 @@
     <meta charset="UTF-8">
     <title>Full-Screen Monaco Editor (Offline)</title>
     <link rel="stylesheet" href="./styles.css">
-</head>
-<body>
-<div id="controls">
-    <label for="theme-select"></label><select id="theme-select"></select>
-    <label for="language-select"></label><select id="language-select"></select>
-</div>
-<div id="editor-container"></div>
-<script src="./editor.js" type="module"></script>
-</body>
+ </head>
+ <body>
+   <div id="tabbar">
+     <button id="add-tab" title="New tab (Ctrl/Cmd+T)">＋</button>
+     <!-- tabs will be injected here -->
+   </div>
+
+   <div id="controls">
+     <label for="theme-select"></label><select id="theme-select"></select>
+     <label for="language-select"></label><select id="language-select"></select>
+   </div>
+
+   <div id="editor-container"></div>
+   <script src="./editor.js" type="module"></script>
+ </body>
 </html>
