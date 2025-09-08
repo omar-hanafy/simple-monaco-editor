@@ -34,8 +34,119 @@ function initializeEditor(customThemes = [], languages = []) {
     const languageSelect = document.getElementById('language-select');
     const tabbarEl = document.getElementById('tabbar');
     const addTabBtn = document.getElementById('add-tab');
+    const historyBtn   = document.getElementById('history-button');
+    const historyPanel = document.getElementById('history-panel');
+    const historyList  = document.getElementById('history-list');
+    const historyClear = document.getElementById('history-clear');
     // track whether to scroll the tab bar fully to the end after rebuild
     let scrollToEndNext = false;
+
+    // ---- Recently Closed (persistent history) ----
+    const LS_HISTORY = 'closedHistoryV1';
+    const MAX_HISTORY = 20;
+    let closedHistory = safeParse(localStorage.getItem(LS_HISTORY), []) || [];
+
+    function persistHistory() {
+      try {
+        localStorage.setItem(LS_HISTORY, JSON.stringify(closedHistory));
+      } catch (e) {
+        // trim until it fits; keep at least a few
+        while (closedHistory.length > 5) {
+          closedHistory.pop();
+          try { localStorage.setItem(LS_HISTORY, JSON.stringify(closedHistory)); break; } catch (_) {}
+        }
+      }
+    }
+    function pushClosedHistory(entry) {
+      const rec = {
+        _hid: entry._hid || (crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())),
+        name: entry.name || 'Untitled',
+        language: entry.language || 'markdown',
+        value: entry.value ?? '',
+        closedAt: Date.now(),
+      };
+      closedHistory.unshift(rec);
+      if (closedHistory.length > MAX_HISTORY) closedHistory.length = MAX_HISTORY;
+      persistHistory();
+    }
+    function removeHistoryByHid(hid) {
+      const idx = closedHistory.findIndex(r => r._hid === hid);
+      if (idx >= 0) {
+        closedHistory.splice(idx, 1);
+        persistHistory();
+      }
+    }
+    function renderHistory() {
+      if (!historyList) return;
+      historyList.innerHTML = '';
+      if (!closedHistory.length) {
+        const empty = document.createElement('div');
+        empty.style.opacity = '0.7';
+        empty.style.fontSize = '12px';
+        empty.textContent = 'No recently closed tabs.';
+        historyList.appendChild(empty);
+        return;
+      }
+      closedHistory.forEach((item, i) => {
+        const row = document.createElement('div');
+        row.className = 'history-item';
+
+        const title = document.createElement('span');
+        title.className = 'title';
+        title.textContent = item.name;
+
+        const meta = document.createElement('span');
+        meta.className = 'meta';
+        meta.textContent = item.language;
+
+        const del = document.createElement('button');
+        del.className = 'delete';
+        del.textContent = '×';
+        del.title = 'Remove from history';
+
+        title.addEventListener('click', () => {
+          closedHistory.splice(i, 1);
+          persistHistory();
+          createTab(item.name, item.language, item.value ?? defaultContent());
+          if (historyPanel) historyPanel.hidden = true;
+          focusEditorAtEnd();
+        });
+
+        del.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closedHistory.splice(i, 1);
+          persistHistory();
+          renderHistory();
+        });
+
+        row.appendChild(title);
+        row.appendChild(meta);
+        row.appendChild(del);
+        historyList.appendChild(row);
+      });
+    }
+
+    // Toggle panel
+    historyBtn?.addEventListener('click', () => {
+      const willOpen = historyPanel.hidden;
+      historyPanel.hidden = !willOpen;
+      if (willOpen) renderHistory();
+    });
+    historyClear?.addEventListener('click', () => {
+      closedHistory = [];
+      persistHistory();
+      renderHistory();
+    });
+    // Close panel on click-away / Escape
+    document.addEventListener('click', (e) => {
+      if (!historyPanel || historyPanel.hidden) return;
+      const t = e.target;
+      if (t === historyBtn) return;
+      if (!historyPanel.contains(t)) historyPanel.hidden = true;
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && historyPanel && !historyPanel.hidden) historyPanel.hidden = true;
+    });
 
     // ---- Themes ----
     customThemes.forEach(theme => monaco.editor.defineTheme(theme.name, theme.data));
@@ -51,6 +162,21 @@ function initializeEditor(customThemes = [], languages = []) {
 
     // ---- Languages ----
     populateSelect(languageSelect, languages, 'editorLanguage', 'markdown');
+    // Compact selects to current option text
+    const _selectMeasurer = document.createElement('span');
+    _selectMeasurer.style.cssText = 'position:absolute;top:-9999px;left:-9999px;white-space:pre;visibility:hidden;';
+    document.body.appendChild(_selectMeasurer);
+    function fitSelectWidth(sel, minPx = 64, padPx = 28) {
+      const cs = getComputedStyle(sel);
+      _selectMeasurer.style.fontFamily = cs.fontFamily;
+      _selectMeasurer.style.fontSize = cs.fontSize;
+      _selectMeasurer.style.fontWeight = cs.fontWeight;
+      _selectMeasurer.textContent = sel.options[sel.selectedIndex]?.text || '';
+      const w = Math.ceil(_selectMeasurer.getBoundingClientRect().width + padPx);
+      sel.style.width = Math.max(minPx, w) + 'px';
+    }
+    fitSelectWidth(themeSelect);
+    fitSelectWidth(languageSelect);
 
     // ---- Editor instance ----
     const editor = monaco.editor.create(document.getElementById('editor-container'), {
@@ -92,6 +218,7 @@ function initializeEditor(customThemes = [], languages = []) {
       const model = ensureModel(tab);
       editor.setModel(model);
       languageSelect.value = tab.language;
+      fitSelectWidth(languageSelect);
       // ensure the active tab is visible when switching
       ensureActiveTabVisible();
       // keep typing flow seamless when switching tabs; put caret at end
@@ -160,6 +287,7 @@ function initializeEditor(customThemes = [], languages = []) {
       monaco.editor.setTheme(selectedTheme);
       localStorage.setItem('editorTheme', selectedTheme);
       applyThemeToUI(selectedTheme, customThemes);
+      fitSelectWidth(themeSelect);
     });
 
     languageSelect.addEventListener('change', e => {
@@ -170,6 +298,7 @@ function initializeEditor(customThemes = [], languages = []) {
       tab.language = lang;
       persistTabs();
       localStorage.setItem('editorLanguage', lang); // keep global default too
+      fitSelectWidth(languageSelect);
     });
 
     addTabBtn.addEventListener('click', () => { scrollToEndNext = true; createTab(); });
@@ -194,7 +323,9 @@ function initializeEditor(customThemes = [], languages = []) {
         // Always keep at least one tab
         const t = getTab(id);
         const val = localStorage.getItem(modelKey(id));
-        closedStack.push({ ...t, value: val });
+        const hist = { ...t, value: val, _hid: (crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random())), closedAt: Date.now() };
+        closedStack.push(hist);
+        pushClosedHistory(hist);
         localStorage.removeItem(modelKey(id));
         const newId = uuid();
         tabs = [{ id: newId, name: 'Untitled', language: t?.language || 'markdown', uri: `inmemory://${newId}` }];
@@ -216,9 +347,13 @@ function initializeEditor(customThemes = [], languages = []) {
       if (content === null) content = localStorage.getItem(modelKey(id));
       localStorage.removeItem(modelKey(id));
 
-      // push to stack for reopen
+      // push to stack and persistent history for reopen
       const tmeta = getTab(id);
-      if (tmeta) closedStack.push({ ...tmeta, value: content });
+      if (tmeta) {
+        const histObj = { ...tmeta, value: content, _hid: (crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random())), closedAt: Date.now() };
+        closedStack.push(histObj);
+        pushClosedHistory(histObj);
+      }
 
       // choose next active
       const closingActive = id === activeTabId;
@@ -235,8 +370,14 @@ function initializeEditor(customThemes = [], languages = []) {
     }
 
     function reopenClosedTab() {
-      const last = closedStack.pop();
-      if (!last) return;
+      let last = closedStack.pop();
+      if (!last) {
+        last = closedHistory.shift();
+        if (!last) return;
+        persistHistory();
+      } else if (last._hid) {
+        removeHistoryByHid(last._hid);
+      }
       createTab(last.name, last.language, last.value ?? defaultContent());
     }
 

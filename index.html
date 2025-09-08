@@ -11,12 +11,22 @@
      <!-- tabs will be injected here -->
    </div>
 
-   <div id="controls">
+  <div id="controls">
      <label for="theme-select"></label><select id="theme-select"></select>
      <label for="language-select"></label><select id="language-select"></select>
-   </div>
+     <button id="history-button" title="Recently closed (Ctrl/Cmd+Shift+T)">⟲</button>
+  </div>
 
-   <div id="editor-container"></div>
-   <script src="./editor.js" type="module"></script>
+  <!-- Recently closed panel -->
+  <div id="history-panel" hidden>
+    <div class="header">
+      <span class="title">Recently closed</span>
+      <button id="history-clear" title="Clear all">Clear</button>
+    </div>
+    <div id="history-list"></div>
+  </div>
+
+  <div id="editor-container"></div>
+  <script src="./editor.js" type="module"></script>
  </body>
 </html>

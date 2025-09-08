@@ -163,3 +163,70 @@ html, body {
     display: none;
 }
 .tab.dirty .dirty-dot { display: inline-block; }
+
+/* --- Recently closed: button + panel --- */
+#history-button {
+    height: 28px;
+    min-width: 28px;
+    line-height: 28px;
+    padding: 0 8px;
+    border: 1px solid var(--ui-border);
+    border-radius: 6px;
+    cursor: pointer;
+    background: var(--ui-surface);
+    color: var(--ui-fg);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    flex: 0 0 auto;
+}
+#history-button:hover { background: var(--ui-surface-hover); }
+
+/* Panel floats just above the controls block */
+#history-panel {
+    position: absolute;
+    right: 10px;
+    bottom: 48px; /* above the controls */
+    width: 280px;
+    max-height: 50vh;
+    overflow: auto;
+    background: var(--ui-surface);
+    color: var(--ui-fg);
+    border: 1px solid var(--ui-border);
+    border-radius: 8px;
+    padding: 8px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.35);
+    z-index: 2000;
+}
+#history-panel[hidden] { display: none; }
+#history-panel .header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+}
+#history-panel .header .title { font-weight: 600; font-size: 12px; opacity: .9; }
+#history-clear {
+    border: none; background: transparent; color: var(--ui-fg);
+    opacity: .6; cursor: pointer; font-size: 12px;
+}
+#history-clear:hover { opacity: .9; }
+
+.history-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 6px; border-radius: 6px; margin: 2px 0;
+}
+.history-item:hover { background: var(--ui-surface-hover); }
+.history-item .title {
+    flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; cursor: pointer;
+}
+.history-item .meta { font-size: 11px; opacity: .7; flex: 0 0 auto; }
+.history-item .delete {
+    border: none; background: transparent; color: var(--ui-fg);
+    opacity: .5; font-weight: 700; cursor: pointer;
+}
+.history-item .delete:hover { opacity: .9; }
+
+/* Keep controls group tightly packed */
+#controls { gap: 6px; }
+#controls select { padding: 4px 6px; }
+
+/* Width of selects is set via JS for dynamic sizing. */
