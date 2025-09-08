@@ -1,5 +1,7 @@
 // editor.js
 
+// (No global controller stub; rely on in-app keybindings)
+
 (async () => {
   await loadMonacoEditor();
 
@@ -32,6 +34,8 @@ function initializeEditor(customThemes = [], languages = []) {
     const languageSelect = document.getElementById('language-select');
     const tabbarEl = document.getElementById('tabbar');
     const addTabBtn = document.getElementById('add-tab');
+    // track whether to scroll the tab bar fully to the end after rebuild
+    let scrollToEndNext = false;
 
     // ---- Themes ----
     customThemes.forEach(theme => monaco.editor.defineTheme(theme.name, theme.data));
@@ -42,6 +46,8 @@ function initializeEditor(customThemes = [], languages = []) {
       ...customThemes.map(t => ({ value: t.name, text: t.displayName || t.name.replace(/-/g, ' ') })),
     ];
     populateSelect(themeSelect, themes, 'editorTheme', 'vs-dark');
+    // Apply UI colors to match theme
+    applyThemeToUI(themeSelect.value, customThemes);
 
     // ---- Languages ----
     populateSelect(languageSelect, languages, 'editorLanguage', 'markdown');
@@ -51,7 +57,8 @@ function initializeEditor(customThemes = [], languages = []) {
       value: '', // will be replaced by active tab model
       language: 'markdown',
       theme: localStorage.getItem('editorTheme') || 'vs-dark',
-      padding: { top: 44 },
+      // Editor is placed below the tab bar; minimal top padding is enough
+      padding: { top: 8 },
       automaticLayout: true,
       fontFamily: 'JetBrains Mono, monospace',
       formatOnType: true,
@@ -85,6 +92,8 @@ function initializeEditor(customThemes = [], languages = []) {
       const model = ensureModel(tab);
       editor.setModel(model);
       languageSelect.value = tab.language;
+      // ensure the active tab is visible when switching
+      ensureActiveTabVisible();
       // keep typing flow seamless when switching tabs; put caret at end
       focusEditorAtEnd();
     };
@@ -150,6 +159,7 @@ function initializeEditor(customThemes = [], languages = []) {
       const selectedTheme = e.target.value;
       monaco.editor.setTheme(selectedTheme);
       localStorage.setItem('editorTheme', selectedTheme);
+      applyThemeToUI(selectedTheme, customThemes);
     });
 
     languageSelect.addEventListener('change', e => {
@@ -162,7 +172,7 @@ function initializeEditor(customThemes = [], languages = []) {
       localStorage.setItem('editorLanguage', lang); // keep global default too
     });
 
-    addTabBtn.addEventListener('click', () => createTab());
+    addTabBtn.addEventListener('click', () => { scrollToEndNext = true; createTab(); });
 
     function createTab(name = 'Untitled', language = localStorage.getItem('editorLanguage') || 'markdown', value = defaultContent()) {
       const id = uuid();
@@ -280,8 +290,10 @@ function initializeEditor(customThemes = [], languages = []) {
 
         tabbarEl.appendChild(el);
       });
-      // keep add button at start
-      tabbarEl.prepend(addTabBtn);
+      // place add button after the last tab (like browsers)
+      tabbarEl.appendChild(addTabBtn);
+      ensureActiveTabVisible();
+      if (scrollToEndNext) { scrollToEnd(); scrollToEndNext = false; }
     }
 
     function setTabDirty(id, dirty) {
@@ -330,17 +342,28 @@ function initializeEditor(customThemes = [], languages = []) {
     // Reopen Closed (Cmd/Ctrl + Shift + T)
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyT, () => reopenClosedTab());
 
-    // Next/Prev: Ctrl/Cmd+Tab and Ctrl/Cmd+Shift+Tab (may be intercepted by browser/OS)
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Tab, () => {
+    // Helpers for cycling
+    const cycleNext = () => {
       const idx = tabs.findIndex(t => t.id === activeTabId);
       const next = tabs[(idx + 1) % tabs.length];
       setActive(next.id);
-    });
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab, () => {
+    };
+    const cyclePrev = () => {
       const idx = tabs.findIndex(t => t.id === activeTabId);
       const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
       setActive(prev.id);
-    });
+    };
+
+    // (No external control API; keyboard shortcuts below handle cycling)
+
+    // Next/Prev: Ctrl/Cmd+Tab and Ctrl/Cmd+Shift+Tab (often intercepted by browser)
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Tab, cycleNext);
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab, cyclePrev);
+
+    // Reliable alternatives that browsers don't steal as often
+    // Ctrl/Cmd + Alt + ArrowRight/ArrowLeft
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.RightArrow, cycleNext);
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, cyclePrev);
 
     // Numeric switching (browser-safe): Cmd/Ctrl+Alt+1..9
     window.addEventListener('keydown', (e) => {
@@ -358,6 +381,15 @@ function initializeEditor(customThemes = [], languages = []) {
         }
       }
     }, { capture: true });
+
+    // Horizontal scrolling for the tab bar via mouse wheel/trackpad
+    tabbarEl.addEventListener('wheel', (e) => {
+      const horiz = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (horiz) {
+        e.preventDefault();
+        tabbarEl.scrollLeft += horiz;
+      }
+    }, { passive: false });
 
     // Global fallback for editor-like shortcuts when focus is outside Monaco
     window.addEventListener('keydown', (e) => {
@@ -378,6 +410,15 @@ function initializeEditor(customThemes = [], languages = []) {
       }
     });
 
+    // Minimal global listener: allow cycling even if focus isn't in Monaco
+    window.addEventListener('keydown', (e) => {
+      const ctrlOrCmd = e.metaKey || e.ctrlKey;
+      if (!ctrlOrCmd || !e.altKey) return;
+      if (e.defaultPrevented) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); cycleNext(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); cyclePrev(); }
+    }, { capture: true });
+
     function focusEditorAtEnd() {
       const model = editor.getModel();
       if (!model) { editor.focus(); return; }
@@ -386,6 +427,16 @@ function initializeEditor(customThemes = [], languages = []) {
       editor.setPosition({ lineNumber: lastLine, column: lastCol });
       editor.revealLine(lastLine);
       editor.focus();
+    }
+
+    function ensureActiveTabVisible() {
+      const el = tabbarEl.querySelector(`.tab[data-id="${activeTabId}"]`);
+      if (!el) return;
+      el.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+    }
+
+    function scrollToEnd() {
+      tabbarEl.scrollTo({ left: tabbarEl.scrollWidth, behavior: 'smooth' });
     }
   });
 }
@@ -410,4 +461,59 @@ function getInitialEditorContent() {
 
 function safeParse(s, fallback) {
   try { return JSON.parse(s); } catch { return fallback; }
+}
+
+// --- Theme to UI bridge ---
+function applyThemeToUI(themeId, customThemes) {
+  const custom = Array.isArray(customThemes) ? customThemes.find(t => t.name === themeId) : null;
+  const data = custom && custom.data ? custom.data : null;
+  const base = (data && data.base) || (themeId === 'vs' ? 'vs' : (themeId === 'hc-black' ? 'hc-black' : 'vs-dark'));
+  const colors = (data && data.colors) || {};
+  const isDark = base !== 'vs';
+
+  const bg = colors['editor.background'] || (base === 'vs' ? '#ffffff' : base === 'hc-black' ? '#000000' : '#1e1e1e');
+  const fg = colors['editor.foreground'] || (isDark ? '#e6e6e6' : '#111111');
+  const mixTarget = isDark ? '#ffffff' : '#000000';
+  const surface = mixHex(bg, mixTarget, isDark ? 0.12 : 0.06);
+  const surfaceHover = mixHex(bg, mixTarget, isDark ? 0.18 : 0.10);
+  const surfaceActive = mixHex(bg, mixTarget, isDark ? 0.24 : 0.14);
+  const border = rgbaFromHex(mixTarget, isDark ? 0.18 : 0.16);
+  const dirty = colors['list.warningForeground'] || (isDark ? '#f59e0b' : '#d97706');
+
+  const root = document.documentElement.style;
+  root.setProperty('--ui-bg', bg);
+  root.setProperty('--ui-fg', fg);
+  root.setProperty('--ui-surface', surface);
+  root.setProperty('--ui-surface-hover', surfaceHover);
+  root.setProperty('--ui-surface-active', surfaceActive);
+  root.setProperty('--ui-border', border);
+  root.setProperty('--ui-select-bg', surface);
+  root.setProperty('--ui-select-fg', fg);
+  root.setProperty('--ui-dirty', dirty);
+}
+
+function hexToRgb(hex) {
+  let h = (hex || '').toString().trim();
+  if (h.startsWith('#')) h = h.slice(1);
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  if (h.length >= 6) h = h.slice(0, 6);
+  const n = parseInt(h, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function rgbToHex({ r, g, b }) {
+  const to = (v) => v.toString(16).padStart(2, '0');
+  return `#${to(Math.max(0, Math.min(255, r)))}${to(Math.max(0, Math.min(255, g)))}${to(Math.max(0, Math.min(255, b)))}`;
+}
+
+function mixHex(hexA, hexB, t) {
+  const a = hexToRgb(hexA);
+  const b = hexToRgb(hexB);
+  const m = (x, y) => Math.round(x + (y - x) * t);
+  return rgbToHex({ r: m(a.r, b.r), g: m(a.g, b.g), b: m(a.b, b.b) });
+}
+
+function rgbaFromHex(hex, alpha) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }

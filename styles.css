@@ -1,20 +1,36 @@
 /* styles.css */
 
+/* Theme-driven variables (updated from JS based on Monaco theme) */
+:root {
+    --ui-bg: #1e1e1e;             /* editor background */
+    --ui-fg: #e6e6e6;             /* foreground text */
+    --ui-surface: rgba(58,58,58,0.96);
+    --ui-surface-hover: rgba(66,66,66,0.96);
+    --ui-surface-active: rgba(74,74,74,0.98);
+    --ui-border: rgba(255,255,255,0.18);
+    --ui-select-bg: var(--ui-surface);
+    --ui-select-fg: var(--ui-fg);
+    --ui-dirty: #f59e0b;          /* amber */
+    /* Height of the visual offset consumed by the tab bar area */
+    --editor-top-offset: 48px; /* matches tabbar top + height + padding */
+}
+
 /* Remove all padding and margin */
 html, body {
     margin: 0;
     padding: 0;
     height: 100%;
     overflow: hidden;
+    background: var(--ui-bg);
+    color: var(--ui-fg);
 }
 
-/* Fullscreen editor container */
 #editor-container {
     position: fixed;
-    top: 0;
+    top: var(--editor-top-offset);
     left: 0;
     width: 100%;
-    height: 100%;
+    height: calc(100% - var(--editor-top-offset));
 }
 
 /* Controls styling for language and theme selectors */
@@ -23,18 +39,20 @@ html, body {
     z-index: 1000;
     right: 10px;
     bottom: 10px;
-    padding: 5px;
-    border-radius: 5px;
-    background-color: rgba(255, 255, 255, 0.8); /* Default light mode background */
-    color: #000; /* Default light mode text */
+    padding: 6px 8px;
+    border-radius: 6px;
+    background-color: var(--ui-surface);
+    color: var(--ui-fg);
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-/* Light mode select styling */
 #controls select {
     margin: 0 5px;
     padding: 5px;
-    background-color: #f5f5f5;
-    color: #000;
+    background-color: var(--ui-select-bg);
+    color: var(--ui-select-fg);
     border: none;
     border-radius: 4px;
     appearance: none; /* Remove native select appearance */
@@ -43,19 +61,6 @@ html, body {
 #controls select:focus {
     outline: none; /* Remove focus outline */
     box-shadow: 0 0 3px #666; /* Subtle shadow for focus */
-}
-
-/* Dark mode adjustments */
-@media (prefers-color-scheme: dark) {
-    #controls {
-        background-color: rgba(32, 32, 32, 0.9); /* Dark mode background */
-        color: #fff; /* Dark mode text */
-    }
-
-    #controls select {
-        background-color: #333; /* Dark background */
-        color: #fff; /* White text */
-    }
 }
 
 /* Top tab bar */
@@ -74,38 +79,47 @@ html, body {
     flex-wrap: nowrap;
     -webkit-overflow-scrolling: touch;
     padding: 2px;
+    scroll-snap-type: x proximity;
+    /* Hide scrollbar visuals */
+    scrollbar-width: none;           /* Firefox */
+    -ms-overflow-style: none;        /* IE/Edge legacy */
 }
+
+/* Hide scrollbar visuals (WebKit) */
+#tabbar::-webkit-scrollbar { display: none; height: 0; }
 
 #tabbar button#add-tab {
     height: 24px;
     line-height: 24px;
-    border: 1px solid rgba(0,0,0,0.08);
+    border: 1px solid var(--ui-border);
     border-radius: 6px;
     padding: 0 8px;
     cursor: pointer;
-    background: rgba(255,255,255,0.7);
+    background: var(--ui-surface);
+    color: var(--ui-fg);
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px;
-    position: sticky;
-    left: 0;
-    z-index: 1;
+    flex: 0 0 auto;
 }
 
 .tab {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    max-width: 200px;
+    max-width: 24ch; /* cap each tab width */
     height: 24px;
     padding: 2px 8px;
     border-radius: 6px;
     cursor: pointer;
-    background: rgba(255,255,255,0.7);
+    background: var(--ui-surface);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    border: 1px solid rgba(0,0,0,0.08);
+    border: 1px solid var(--ui-border);
     user-select: none;
+    color: var(--ui-fg);
+    scroll-snap-align: start;
+    flex: 0 0 auto; /* prevent shrinking so overflow can scroll */
 }
 .tab.active { outline: none; }
 .tab .close {
@@ -119,35 +133,14 @@ html, body {
 .tab .close:hover { opacity: 1; }
 
 /* place selects */
-#controls {
-    position: absolute;
-    z-index: 1000;
-    right: 10px;
-    bottom: 10px;
-    padding: 6px 8px;
-    border-radius: 6px;
-    background-color: rgba(255,255,255,0.85);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-    #tabbar button#add-tab, .tab, #controls {
-        background-color: rgba(32,32,32,0.85);
-        color: #fff;
-        border-color: rgba(255,255,255,0.1);
-    }
-    #controls select { background-color: #333; color: #fff; }
-}
+/* (already defined above) */
 
 /* Compact, modern tab look */
 .tab { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.tab:hover { background: rgba(255,255,255,0.9); }
-.tab.active { background: rgba(255,255,255,0.96); border-color: rgba(0,0,0,0.22); outline: none; box-shadow: none; }
+.tab:hover { background: var(--ui-surface-hover); }
+.tab.active { background: var(--ui-surface-active); border-color: var(--ui-border); outline: none; box-shadow: none; }
 .tab .name {
-    max-width: 180px;
+    max-width: 22ch;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -166,21 +159,7 @@ html, body {
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: #d97706; /* amber */
+    background: var(--ui-dirty);
     display: none;
 }
 .tab.dirty .dirty-dot { display: inline-block; }
-
-@media (prefers-color-scheme: dark) {
-    .tab { background: rgba(40,40,40,0.85); border-color: rgba(255,255,255,0.08); }
-    .tab:hover { background: rgba(52,52,52,0.9); }
-    .tab.active { background: rgba(58,58,58,0.96); border-color: rgba(255,255,255,0.22); outline: none; box-shadow: none; }
-    .tab .dirty-dot { background: #f59e0b; }
-}
-
-/* Explicit light mode polish */
-@media (prefers-color-scheme: light) {
-    .tab { background: rgba(255,255,255,0.86); border-color: rgba(0,0,0,0.12); }
-    .tab:hover { background: rgba(255,255,255,0.96); }
-    .tab.active { background: #ffffff; border-color: rgba(0,0,0,0.22); }
-}
