@@ -854,10 +854,33 @@ function applyThemeToUI(themeId, customThemes) {
   const bg = colors['editor.background'] || (base === 'vs' ? '#ffffff' : base === 'hc-black' ? '#000000' : '#1e1e1e');
   const fg = colors['editor.foreground'] || (isDark ? '#e6e6e6' : '#111111');
   const mixTarget = isDark ? '#ffffff' : '#000000';
-  const surface = mixHex(bg, mixTarget, isDark ? 0.12 : 0.06);
-  const surfaceHover = mixHex(bg, mixTarget, isDark ? 0.18 : 0.10);
-  const surfaceActive = mixHex(bg, mixTarget, isDark ? 0.24 : 0.14);
-  const border = rgbaFromHex(mixTarget, isDark ? 0.18 : 0.16);
+  const isHighContrast = (base === 'hc-black');
+
+  let surface;
+  let surfaceHover;
+  let surfaceActive;
+  let border;
+  let activeOutline;
+
+  let activeBorderWidth = '0.5px';
+  let tabBorderWidth = '0.5px';
+
+  if (isHighContrast) {
+    const hcBase = bg || '#000000';
+    surface = hcBase;
+    surfaceHover = mixHex(hcBase, '#ffffff', 0.1);
+    surfaceActive = hcBase;
+    border = rgbaFromHex('#ffffff', 0.35);
+    activeOutline = '#ffffff';
+    activeBorderWidth = '0.3px';
+  } else {
+    surface = mixHex(bg, mixTarget, isDark ? 0.12 : 0.06);
+    surfaceHover = mixHex(bg, mixTarget, isDark ? 0.18 : 0.10);
+    surfaceActive = mixHex(bg, mixTarget, isDark ? 0.24 : 0.14);
+    border = rgbaFromHex(mixTarget, isDark ? 0.18 : 0.16);
+    activeOutline = rgbaFromHex(mixTarget, isDark ? 0.22 : 0.18);
+  }
+
   const dirty = colors['list.warningForeground'] || (isDark ? '#f59e0b' : '#d97706');
 
   const root = document.documentElement.style;
@@ -870,6 +893,9 @@ function applyThemeToUI(themeId, customThemes) {
   root.setProperty('--ui-select-bg', surface);
   root.setProperty('--ui-select-fg', fg);
   root.setProperty('--ui-dirty', dirty);
+  root.setProperty('--ui-tab-active-outline', activeOutline);
+  root.setProperty('--ui-tab-active-border-width', activeBorderWidth);
+  root.setProperty('--ui-tab-border-width', tabBorderWidth);
 }
 
 function hexToRgb(hex) {

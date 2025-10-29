@@ -159,7 +159,7 @@ html, body {
     height: var(--ui-tab-h);
     padding: 0 var(--ui-pad-x);
     border-radius: var(--ui-tab-r);
-    border: 1px solid transparent;
+    border: var(--ui-tab-border-width, 0.5px) solid transparent;
     background: transparent;
     color: var(--ui-fg);
     font-family: var(--ui-mono);
@@ -171,7 +171,8 @@ html, body {
 #tabs-scroll .tab:hover { background: var(--ui-surface-hover); }
 #tabs-scroll .tab.active {
     background: var(--ui-surface-active);
-    border-color: var(--ui-border);
+    border-color: var(--ui-tab-active-outline);
+    border-width: var(--ui-tab-active-border-width, 1px);
 }
 
 #tabs-scroll .tab .dirty-dot {
