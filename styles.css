@@ -12,7 +12,12 @@
     --ui-select-fg: var(--ui-fg);
     --ui-dirty: #f59e0b;          /* amber */
     /* Height of the visual offset consumed by the tab bar area */
-    --editor-top-offset: 48px; /* matches tabbar top + height + padding */
+    --editor-top-offset: 42px; /* compact tab bar height */
+    --ui-tab-h: 24px;             /* compact tab height */
+    --ui-tab-r: 6px;              /* corner radius */
+    --ui-gap: 6px;                /* spacing unit */
+    --ui-pad-x: 6px;              /* horizontal padding */
+    --ui-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 }
 
 /* Remove all padding and margin */
@@ -39,23 +44,31 @@ html, body {
     z-index: 1000;
     right: 10px;
     bottom: 10px;
-    padding: 6px 8px;
+    padding: 4px 6px;
     border-radius: 6px;
     background-color: var(--ui-surface);
     color: var(--ui-fg);
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
+    font-family: var(--ui-mono);
 }
 
 #controls select {
-    margin: 0 5px;
-    padding: 5px;
+    margin: 0;
+    padding: 0 6px;
     background-color: var(--ui-select-bg);
     color: var(--ui-select-fg);
     border: none;
     border-radius: 4px;
     appearance: none; /* Remove native select appearance */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    font-family: inherit;
+    font-size: 12px;
+    height: 24px;
+    box-sizing: border-box;
+    line-height: 1;
 }
 
 #controls select:focus {
@@ -67,117 +80,220 @@ html, body {
 #tabbar {
     position: absolute;
     z-index: 1000;
-    top: 8px;
+    top: 6px;
     left: 8px;
     right: 8px;
-    height: 30px;
-    display: flex;
-    gap: 4px;
+    display: grid;
+    grid-template-columns: 1fr auto;
     align-items: center;
+    gap: var(--ui-gap);
+    padding: 4px 6px;
+    border-radius: var(--ui-tab-r);
+    background: transparent;
+    border: none;
     pointer-events: auto;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    -webkit-overflow-scrolling: touch;
-    padding: 2px;
-    scroll-snap-type: x proximity;
-    /* Hide scrollbar visuals */
-    scrollbar-width: none;           /* Firefox */
-    -ms-overflow-style: none;        /* IE/Edge legacy */
 }
 
-/* Hide scrollbar visuals (WebKit) */
-#tabbar::-webkit-scrollbar { display: none; height: 0; }
+#tabs-scroll {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    scroll-behavior: smooth;
+    padding: 0;
+}
+#tabs-scroll::-webkit-scrollbar {
+    height: 0;
+    background: transparent;
+    transition: height 0.2s ease;
+}
+#tabs-scroll::-webkit-scrollbar-thumb {
+    background: var(--ui-border);
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+#tabs-scroll::-webkit-scrollbar-track { background: transparent; }
+#tabs-scroll.panning { cursor: grabbing; cursor: -webkit-grabbing; }
+#tabs-scroll.show-scrollbar,
+#tabs-scroll:hover {
+    scrollbar-width: thin;
+}
+#tabs-scroll.show-scrollbar::-webkit-scrollbar,
+#tabs-scroll:hover::-webkit-scrollbar {
+    height: 6px;
+}
+#tabs-scroll.show-scrollbar::-webkit-scrollbar-thumb,
+#tabs-scroll:hover::-webkit-scrollbar-thumb {
+    opacity: 1;
+}
 
 #tabbar button#add-tab {
-    height: 24px;
-    line-height: 24px;
+    width: var(--ui-tab-h);
+    height: var(--ui-tab-h);
+    padding: 0;
     border: 1px solid var(--ui-border);
-    border-radius: 6px;
-    padding: 0 8px;
+    border-radius: var(--ui-tab-r);
     cursor: pointer;
     background: var(--ui-surface);
     color: var(--ui-fg);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    flex: 0 0 auto;
+    font-family: var(--ui-mono);
+    font-size: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
 }
+#tabbar button#add-tab:hover { background: var(--ui-surface-hover); }
+#tabbar button#add-tab:active { background: var(--ui-surface-active); }
 
-.tab {
+#tabs-scroll .tab {
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    max-width: 24ch; /* cap each tab width */
-    height: 24px;
-    padding: 2px 8px;
-    border-radius: 6px;
-    cursor: pointer;
-    background: var(--ui-surface);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    border: 1px solid var(--ui-border);
-    user-select: none;
+    height: var(--ui-tab-h);
+    padding: 0 var(--ui-pad-x);
+    border-radius: var(--ui-tab-r);
+    border: 1px solid transparent;
+    background: transparent;
     color: var(--ui-fg);
-    scroll-snap-align: start;
-    flex: 0 0 auto; /* prevent shrinking so overflow can scroll */
-}
-.tab.active { outline: none; }
-.tab .close {
-    font-weight: bold;
-    opacity: 0.5;
-    cursor: pointer;
+    font-family: var(--ui-mono);
     font-size: 12px;
-    display: none;
+    cursor: default;
+    user-select: none;
+    max-width: 24ch;
 }
-.tab:hover .close { display: inline; opacity: 0.8; }
-.tab .close:hover { opacity: 1; }
+#tabs-scroll .tab:hover { background: var(--ui-surface-hover); }
+#tabs-scroll .tab.active {
+    background: var(--ui-surface-active);
+    border-color: var(--ui-border);
+}
 
-/* place selects */
-/* (already defined above) */
+#tabs-scroll .tab .dirty-dot {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ui-dirty);
+    transform: scale(0);
+    transition: transform 0.12s ease-out;
+}
+#tabs-scroll .tab.dirty .dirty-dot { transform: scale(1); }
 
-/* Compact, modern tab look */
-.tab { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.tab:hover { background: var(--ui-surface-hover); }
-.tab.active { background: var(--ui-surface-active); border-color: var(--ui-border); outline: none; box-shadow: none; }
-.tab .name {
+#tabs-scroll .tab .tab-color {
+    position: relative;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    background: var(--tag-color, #8E8E93);
+    flex: 0 0 auto;
+    cursor: pointer;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    appearance: none;
+    aspect-ratio: 1;
+}
+
+#tabs-scroll .tab .name {
+    display: inline-block;
     max-width: 22ch;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.1;
+    cursor: text;
 }
-.tab .rename-input {
-    font-family: 'JetBrains Mono', monospace;
+#tabs-scroll .tab .name.placeholder {
+    min-width: 40px;
+    border-bottom: 1px dotted rgba(127, 127, 127, 0.35);
+}
+
+#tabs-scroll .tab .close {
+    margin-left: 2px;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.7;
+    cursor: pointer;
+}
+#tabs-scroll .tab .close:hover { opacity: 1; }
+
+.rename-input {
+    font-family: var(--ui-mono);
     font-size: 12px;
-    background: transparent;
-    border: none;
-    outline: none;
-    color: inherit;
-    padding: 0;
-    margin: 0;
+    height: calc(var(--ui-tab-h) - 8px);
+    padding: 0 6px;
+    border-radius: 4px;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-bg);
+    color: var(--ui-fg);
     width: 100%;
+    box-sizing: border-box;
 }
-.tab .dirty-dot {
-    width: 5px;
-    height: 5px;
+
+.tab-color-palette {
+    position: absolute;
+    z-index: 4000;
+    display: flex;
+    gap: 4px;
+    padding: 6px;
+    border-radius: 6px;
+    background: var(--ui-surface);
+    border: 1px solid var(--ui-border);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.tab-color-palette button {
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
-    background: var(--ui-dirty);
-    display: none;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
 }
-.tab.dirty .dirty-dot { display: inline-block; }
+
+.tab-color-palette button::before {
+    content: '';
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--swatch-color);
+}
+
+.tab-color-palette button.active {
+    border-color: var(--ui-fg);
+    box-shadow: 0 0 0 1px var(--ui-fg);
+}
 
 /* --- Recently closed: button + panel --- */
 #history-button {
-    height: 28px;
-    min-width: 28px;
-    line-height: 28px;
-    padding: 0 8px;
+    height: var(--ui-tab-h);
+    width: var(--ui-tab-h);
+    min-width: var(--ui-tab-h);
+    line-height: 1;
+    padding: 0;
     border: 1px solid var(--ui-border);
-    border-radius: 6px;
+    border-radius: var(--ui-tab-r);
     cursor: pointer;
     background: var(--ui-surface);
     color: var(--ui-fg);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-family: var(--ui-mono);
+    font-size: 16px;
     flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 #history-button:hover { background: var(--ui-surface-hover); }
 
@@ -185,7 +301,7 @@ html, body {
 #history-panel {
     position: absolute;
     right: 10px;
-    bottom: 48px; /* above the controls */
+    bottom: 38px; /* above the controls */
     width: 280px;
     max-height: 50vh;
     overflow: auto;
@@ -196,6 +312,9 @@ html, body {
     padding: 8px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.35);
     z-index: 2000;
+    font-family: var(--ui-mono);
+    font-size: 12px;
+    line-height: 1.25;
 }
 #history-panel[hidden] { display: none; }
 #history-panel .header {
@@ -211,7 +330,9 @@ html, body {
 
 .history-item {
     display: flex; align-items: center; gap: 6px;
-    padding: 6px 6px; border-radius: 6px; margin: 2px 0;
+    padding: 4px 6px;
+    border-radius: 6px;
+    margin: 2px 0;
 }
 .history-item:hover { background: var(--ui-surface-hover); }
 .history-item .title {
@@ -224,9 +345,5 @@ html, body {
     opacity: .5; font-weight: 700; cursor: pointer;
 }
 .history-item .delete:hover { opacity: .9; }
-
-/* Keep controls group tightly packed */
-#controls { gap: 6px; }
-#controls select { padding: 4px 6px; }
 
 /* Width of selects is set via JS for dynamic sizing. */

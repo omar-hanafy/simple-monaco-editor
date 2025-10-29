@@ -33,13 +33,30 @@ function initializeEditor(customThemes = [], languages = []) {
     const themeSelect = document.getElementById('theme-select');
     const languageSelect = document.getElementById('language-select');
     const tabbarEl = document.getElementById('tabbar');
+    const tabsScrollEl = document.getElementById('tabs-scroll');
     const addTabBtn = document.getElementById('add-tab');
     const historyBtn   = document.getElementById('history-button');
     const historyPanel = document.getElementById('history-panel');
     const historyList  = document.getElementById('history-list');
     const historyClear = document.getElementById('history-clear');
+    const tabsHostEl = tabsScrollEl || tabbarEl;
     // track whether to scroll the tab bar fully to the end after rebuild
     let scrollToEndNext = false;
+
+    const DEFAULT_TAG_COLOR = '#8E8E93'; // Finder-style neutral gray
+    const TAG_COLORS = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#007AFF', '#AF52DE', '#8E8E93'];
+    let colorPaletteState = null;
+
+    const closeColorPalette = () => {
+      if (!colorPaletteState) return;
+      if (colorPaletteState.el && colorPaletteState.el.isConnected) {
+        colorPaletteState.el.remove();
+      }
+      if (colorPaletteState.cleanup) {
+        colorPaletteState.cleanup();
+      }
+      colorPaletteState = null;
+    };
 
     // ---- Recently Closed (persistent history) ----
     const LS_HISTORY = 'closedHistoryV1';
@@ -60,9 +77,10 @@ function initializeEditor(customThemes = [], languages = []) {
     function pushClosedHistory(entry) {
       const rec = {
         _hid: entry._hid || (crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())),
-        name: entry.name || 'Untitled',
+        name: typeof entry.name === 'string' ? entry.name : '',
         language: entry.language || 'markdown',
         value: entry.value ?? '',
+        color: normalizeColor(entry.color),
         closedAt: Date.now(),
       };
       closedHistory.unshift(rec);
@@ -93,7 +111,9 @@ function initializeEditor(customThemes = [], languages = []) {
 
         const title = document.createElement('span');
         title.className = 'title';
-        title.textContent = item.name;
+        const displayName = (item.name || '').trim() || 'Untitled';
+        title.textContent = displayName;
+        title.title = displayName;
 
         const meta = document.createElement('span');
         meta.className = 'meta';
@@ -107,7 +127,7 @@ function initializeEditor(customThemes = [], languages = []) {
         title.addEventListener('click', () => {
           closedHistory.splice(i, 1);
           persistHistory();
-          createTab(item.name, item.language, item.value ?? defaultContent());
+          createTab(item.name, item.language, item.value ?? defaultContent(), item.color);
           if (historyPanel) historyPanel.hidden = true;
           focusEditorAtEnd();
         });
@@ -151,10 +171,10 @@ function initializeEditor(customThemes = [], languages = []) {
     // ---- Themes ----
     customThemes.forEach(theme => monaco.editor.defineTheme(theme.name, theme.data));
     const themes = [
-      { value: 'vs', text: 'Visual Studio' },
-      { value: 'vs-dark', text: 'Visual Studio Dark' },
-      { value: 'hc-black', text: 'High Contrast Dark' },
-      ...customThemes.map(t => ({ value: t.name, text: t.displayName || t.name.replace(/-/g, ' ') })),
+      { value: 'vs', text: 'VS' },
+      { value: 'vs-dark', text: 'VS Dark' },
+      { value: 'hc-black', text: 'HC Dark' },
+      ...customThemes.map(t => ({ value: t.name, text: t.displayShortName || t.displayName || t.name.replace(/-/g, ' ') })),
     ];
     populateSelect(themeSelect, themes, 'editorTheme', 'vs-dark');
     // Apply UI colors to match theme
@@ -166,7 +186,7 @@ function initializeEditor(customThemes = [], languages = []) {
     const _selectMeasurer = document.createElement('span');
     _selectMeasurer.style.cssText = 'position:absolute;top:-9999px;left:-9999px;white-space:pre;visibility:hidden;';
     document.body.appendChild(_selectMeasurer);
-    function fitSelectWidth(sel, minPx = 64, padPx = 28) {
+    function fitSelectWidth(sel, minPx = 44, padPx = 16) {
       const cs = getComputedStyle(sel);
       _selectMeasurer.style.fontFamily = cs.fontFamily;
       _selectMeasurer.style.fontSize = cs.fontSize;
@@ -200,7 +220,7 @@ function initializeEditor(customThemes = [], languages = []) {
     const LS_TABS = 'tabsMetaV1';
     const LS_ACTIVE = 'activeTabIdV1';
 
-    /** @type {{id:string,name:string,language:string, uri:string}[]} */
+    /** @type {{id:string,name:string,language:string,uri:string,color:string,_dirty?:boolean}[]} */
     let tabs = safeParse(localStorage.getItem(LS_TABS), []);
     let activeTabId = localStorage.getItem(LS_ACTIVE) || null;
     const models = new Map(); // id -> ITextModel
@@ -210,6 +230,39 @@ function initializeEditor(customThemes = [], languages = []) {
     const modelKey = id => `model:${id}`;
     const getTab = id => tabs.find(t => t.id === id);
     const getModel = (id) => models.get(id);
+    const normalizeColor = (input, fallback = DEFAULT_TAG_COLOR) => {
+      if (typeof input !== 'string') return fallback;
+      const hex = input.trim();
+      if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex)) {
+        const normalized = hex.length === 4
+          ? '#' + hex.slice(1).split('').map(c => c + c).join('')
+          : hex;
+        return normalized.toUpperCase();
+      }
+      return fallback;
+    };
+
+    if (!Array.isArray(tabs)) tabs = [];
+    let tabsNeedPersist = false;
+    tabs = tabs.filter(Boolean).map((tab) => {
+      const id = tab.id || uuid();
+      const color = normalizeColor(tab.color);
+      const name = typeof tab.name === 'string' ? tab.name : '';
+      const language = tab.language || 'markdown';
+      const uri = tab.uri || `inmemory://${id}`;
+      const normalized = {
+        ...tab,
+        id,
+        name,
+        language,
+        uri,
+        color,
+      };
+      if (tab.id !== normalized.id || tab.name !== normalized.name || tab.language !== normalized.language || tab.uri !== normalized.uri || tab.color !== normalized.color) {
+        tabsNeedPersist = true;
+      }
+      return normalized;
+    });
     const setActive = (id) => {
       activeTabId = id;
       localStorage.setItem(LS_ACTIVE, id);
@@ -235,12 +288,20 @@ function initializeEditor(customThemes = [], languages = []) {
     };
     const persistTabs = () => localStorage.setItem(LS_TABS, JSON.stringify(tabs));
 
-    function defaultContent() { return '# Start Writing here\n'; }
+    if (tabsNeedPersist) { persistTabs(); }
+
+    function defaultContent() { return ''; }
 
     // ---- Create first tab if none ----
     if (!Array.isArray(tabs) || tabs.length === 0) {
       const id = uuid();
-      tabs = [{ id, name: 'Untitled', language: localStorage.getItem('editorLanguage') || 'markdown', uri: `inmemory://${id}` }];
+      tabs = [{
+        id,
+        name: '',
+        language: localStorage.getItem('editorLanguage') || 'markdown',
+        uri: `inmemory://${id}`,
+        color: DEFAULT_TAG_COLOR,
+      }];
       persistTabs();
       activeTabId = id;
       localStorage.setItem(LS_ACTIVE, id);
@@ -303,17 +364,17 @@ function initializeEditor(customThemes = [], languages = []) {
 
     addTabBtn.addEventListener('click', () => { scrollToEndNext = true; createTab(); });
 
-    function createTab(name = 'Untitled', language = localStorage.getItem('editorLanguage') || 'markdown', value = defaultContent()) {
+    function createTab(name = '', language = localStorage.getItem('editorLanguage') || 'markdown', value = defaultContent(), color = DEFAULT_TAG_COLOR) {
+      scrollToEndNext = true;
       const id = uuid();
       const uri = `inmemory://${id}`;
-      tabs.push({ id, name, language, uri });
+      const safeName = (name || '').trim();
+      const safeColor = normalizeColor(color);
+      tabs.push({ id, name: safeName, language, uri, color: safeColor });
       persistTabs();
       localStorage.setItem(modelKey(id), value);
       updateTabbar();
       setActive(id);
-      // After activation, immediately start inline rename for better UX
-      const activeNameEl = tabbarEl.querySelector('.tab.active .name');
-      if (activeNameEl) startInlineRename(getTab(id), activeNameEl);
     }
 
     const closedStack = [];
@@ -328,7 +389,13 @@ function initializeEditor(customThemes = [], languages = []) {
         pushClosedHistory(hist);
         localStorage.removeItem(modelKey(id));
         const newId = uuid();
-        tabs = [{ id: newId, name: 'Untitled', language: t?.language || 'markdown', uri: `inmemory://${newId}` }];
+        tabs = [{
+          id: newId,
+          name: '',
+          language: t?.language || 'markdown',
+          uri: `inmemory://${newId}`,
+          color: normalizeColor(t?.color),
+        }];
         persistTabs();
         updateTabbar();
         setActive(newId);
@@ -378,38 +445,132 @@ function initializeEditor(customThemes = [], languages = []) {
       } else if (last._hid) {
         removeHistoryByHid(last._hid);
       }
-      createTab(last.name, last.language, last.value ?? defaultContent());
+      createTab(last.name, last.language, last.value ?? defaultContent(), last.color);
     }
 
     function renameTab(id, newName) {
       const t = getTab(id);
       if (!t) return;
-      t.name = (newName || 'Untitled').trim() || 'Untitled';
+      t.name = (newName ?? '').trim();
       persistTabs();
       updateTabbar();
     }
 
+    function setTabColor(id, color) {
+      const t = getTab(id);
+      if (!t) return;
+      const normalized = normalizeColor(color);
+      if (t.color === normalized) return;
+      t.color = normalized;
+      persistTabs();
+      const swatch = tabsHostEl?.querySelector(`.tab[data-id="${id}"] .tab-color`);
+      if (swatch) {
+        swatch.style.setProperty('--tag-color', normalized);
+        swatch.style.backgroundColor = normalized;
+      }
+    }
+
+    const openColorPalette = (anchorEl, tab) => {
+      const reopenSame = colorPaletteState && colorPaletteState.tabId === tab.id;
+      closeColorPalette();
+      if (reopenSame) return;
+
+      const palette = document.createElement('div');
+      palette.className = 'tab-color-palette';
+
+      TAG_COLORS.forEach((hex) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.style.setProperty('--swatch-color', hex);
+        if (normalizeColor(hex) === normalizeColor(tab.color)) {
+          btn.classList.add('active');
+        }
+        btn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          setTabColor(tab.id, hex);
+          closeColorPalette();
+        });
+        palette.appendChild(btn);
+      });
+
+      document.body.appendChild(palette);
+
+      const anchorRect = anchorEl.getBoundingClientRect();
+      const paletteRect = palette.getBoundingClientRect();
+      const top = anchorRect.bottom + window.scrollY + 6;
+      let left = anchorRect.left + window.scrollX - (paletteRect.width - anchorRect.width) / 2;
+      left = Math.max(6, Math.min(left, window.scrollX + window.innerWidth - paletteRect.width - 6));
+      palette.style.top = `${Math.round(top)}px`;
+      palette.style.left = `${Math.round(left)}px`;
+
+      const onDocPointer = (event) => {
+        if (palette.contains(event.target) || anchorEl.contains(event.target)) return;
+        closeColorPalette();
+      };
+      document.addEventListener('pointerdown', onDocPointer, true);
+
+      colorPaletteState = {
+        el: palette,
+        tabId: tab.id,
+        cleanup: () => document.removeEventListener('pointerdown', onDocPointer, true),
+      };
+    };
+
     function updateTabbar() {
-      // remove existing dynamic tabs (keep the add button)
-      [...tabbarEl.querySelectorAll('.tab')].forEach(n => n.remove());
+      const container = tabsHostEl;
+      if (!container) return;
+
+      closeColorPalette();
+
+      [...container.querySelectorAll('.tab')].forEach(n => n.remove());
 
       tabs.forEach(tab => {
+        const colorValue = normalizeColor(tab.color);
         const el = document.createElement('div');
         el.className = 'tab' + (tab.id === activeTabId ? ' active' : '') + (tab._dirty ? ' dirty' : '');
         el.dataset.id = tab.id;
-        el.title = tab.name;
+        el.title = tab.name ? tab.name : 'Add title';
 
         const dot = document.createElement('span');
         dot.className = 'dirty-dot';
         el.appendChild(dot);
 
+        const tagBtn = document.createElement('button');
+        tagBtn.type = 'button';
+        tagBtn.className = 'tab-color';
+        tagBtn.style.setProperty('--tag-color', colorValue);
+        tagBtn.style.backgroundColor = colorValue;
+        tagBtn.title = 'Change tab color (Alt+click for presets)';
+        el.appendChild(tagBtn);
+
+        const cyclePreset = () => {
+          const current = normalizeColor(tab.color);
+          const idx = TAG_COLORS.indexOf(current);
+          const next = TAG_COLORS[(idx + 1) % TAG_COLORS.length];
+          setTabColor(tab.id, next);
+          closeColorPalette();
+        };
+
+        tagBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          if (event.altKey) {
+            event.preventDefault();
+            cyclePreset();
+            return;
+          }
+          openColorPalette(tagBtn, tab);
+        });
+
         const nameSpan = document.createElement('span');
-        nameSpan.className = 'name';
-        nameSpan.textContent = tab.name;
-        // Inline rename on click if active
-        nameSpan.addEventListener('click', (e) => {
-          if (tab.id !== activeTabId) return; // clicking inactive name just activates via parent
-          e.stopPropagation();
+        nameSpan.className = 'name' + (tab.name ? '' : ' placeholder');
+        nameSpan.textContent = tab.name || '';
+        nameSpan.title = tab.name ? 'Rename title' : 'Add title';
+        nameSpan.addEventListener('click', (event) => {
+          event.stopPropagation();
+          if (tab.id !== activeTabId) {
+            setActive(tab.id);
+            return;
+          }
           startInlineRename(tab, nameSpan);
         });
         el.appendChild(nameSpan);
@@ -418,21 +579,21 @@ function initializeEditor(customThemes = [], languages = []) {
         close.className = 'close';
         close.textContent = '×';
         close.title = 'Close (Ctrl/Cmd+W)';
-        close.addEventListener('click', (e) => {
-          e.stopPropagation();
+        close.addEventListener('click', (event) => {
+          event.stopPropagation();
           closeTab(tab.id);
         });
         el.appendChild(close);
 
-        // activate on click
         el.addEventListener('click', () => setActive(tab.id));
 
-        // remove prompt-based rename; handled inline on name click when active
-
-        tabbarEl.appendChild(el);
+        container.appendChild(el);
       });
-      // place add button after the last tab (like browsers)
-      tabbarEl.appendChild(addTabBtn);
+
+      if (addTabBtn && addTabBtn.parentElement !== tabbarEl) {
+        tabbarEl.appendChild(addTabBtn);
+      }
+
       ensureActiveTabVisible();
       if (scrollToEndNext) { scrollToEnd(); scrollToEndNext = false; }
     }
@@ -440,7 +601,7 @@ function initializeEditor(customThemes = [], languages = []) {
     function setTabDirty(id, dirty) {
       const t = getTab(id);
       if (t) t._dirty = !!dirty;
-      const el = tabbarEl.querySelector(`.tab[data-id="${id}"]`);
+      const el = tabsHostEl?.querySelector(`.tab[data-id="${id}"]`);
       if (el) el.classList.toggle('dirty', !!dirty);
     }
 
@@ -452,7 +613,9 @@ function initializeEditor(customThemes = [], languages = []) {
       input.value = tab.name;
       input.setAttribute('maxlength', '120');
       // size and style to fit
-      input.style.width = nameSpan.offsetWidth ? nameSpan.offsetWidth + 'px' : '140px';
+      const width = Math.max(nameSpan.offsetWidth, 80);
+      input.style.width = width + 'px';
+      input.style.minWidth = '40px';
       nameSpan.replaceWith(input);
       input.focus();
       input.select();
@@ -523,14 +686,87 @@ function initializeEditor(customThemes = [], languages = []) {
       }
     }, { capture: true });
 
-    // Horizontal scrolling for the tab bar via mouse wheel/trackpad
-    tabbarEl.addEventListener('wheel', (e) => {
-      const horiz = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-      if (horiz) {
-        e.preventDefault();
-        tabbarEl.scrollLeft += horiz;
-      }
-    }, { passive: false });
+    const scrollEl = tabsHostEl || tabbarEl;
+    if (scrollEl) {
+      let scrollbarFadeTimeout = null;
+      const bumpScrollbarVisibility = () => {
+        if (!scrollEl.classList.contains('show-scrollbar')) {
+          scrollEl.classList.add('show-scrollbar');
+        }
+        if (scrollbarFadeTimeout) clearTimeout(scrollbarFadeTimeout);
+        scrollbarFadeTimeout = setTimeout(() => {
+          scrollEl.classList.remove('show-scrollbar');
+          scrollbarFadeTimeout = null;
+        }, 1200);
+      };
+
+      const onTabbarWheel = (e) => {
+        if (e.ctrlKey) return; // allow pinch zoom gestures
+        if (scrollEl.scrollWidth <= scrollEl.clientWidth) return;
+        let dx = e.deltaX;
+        const unit = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? scrollEl.clientWidth : 1);
+        if (dx === 0 && Math.abs(e.deltaY) > 0) {
+          dx = e.deltaY;
+          e.preventDefault();
+        }
+        if (dx !== 0) {
+          e.preventDefault();
+          bumpScrollbarVisibility();
+          scrollEl.scrollLeft += dx * unit;
+        }
+      };
+      scrollEl.addEventListener('wheel', onTabbarWheel, { passive: false });
+
+      let panPointerId = null;
+      let panStartX = 0;
+      let panStartScroll = 0;
+      scrollEl.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        if (scrollEl.scrollWidth <= scrollEl.clientWidth) return;
+        const tgt = e.target;
+        if (
+          tgt.closest('.tab-color') ||
+          tgt.closest('.tab-color-palette') ||
+          tgt.closest('.close') ||
+          tgt.closest('.rename-input') ||
+          tgt.closest('button') ||
+          tgt.closest('input') ||
+          tgt.closest('select')
+        ) {
+          return;
+        }
+        panPointerId = e.pointerId;
+        panStartX = e.clientX;
+        panStartScroll = scrollEl.scrollLeft;
+        scrollEl.setPointerCapture(panPointerId);
+        scrollEl.classList.add('panning');
+        bumpScrollbarVisibility();
+      });
+      scrollEl.addEventListener('pointermove', (e) => {
+        if (panPointerId == null || e.pointerId !== panPointerId) return;
+        const delta = e.clientX - panStartX;
+        scrollEl.scrollLeft = panStartScroll - delta;
+        bumpScrollbarVisibility();
+      });
+      const endPan = (e) => {
+        if (panPointerId == null || e.pointerId !== panPointerId) return;
+        scrollEl.releasePointerCapture(panPointerId);
+        scrollEl.classList.remove('panning');
+        panPointerId = null;
+        bumpScrollbarVisibility();
+      };
+      scrollEl.addEventListener('pointerup', endPan);
+      scrollEl.addEventListener('pointercancel', endPan);
+
+      scrollEl.addEventListener('mouseenter', bumpScrollbarVisibility);
+      scrollEl.addEventListener('mouseleave', () => {
+        if (scrollbarFadeTimeout) {
+          clearTimeout(scrollbarFadeTimeout);
+          scrollbarFadeTimeout = null;
+        }
+        scrollEl.classList.remove('show-scrollbar');
+      });
+    }
 
     // Global fallback for editor-like shortcuts when focus is outside Monaco
     window.addEventListener('keydown', (e) => {
@@ -571,13 +807,16 @@ function initializeEditor(customThemes = [], languages = []) {
     }
 
     function ensureActiveTabVisible() {
-      const el = tabbarEl.querySelector(`.tab[data-id="${activeTabId}"]`);
+      const container = tabsHostEl || tabbarEl;
+      const el = container?.querySelector(`.tab[data-id="${activeTabId}"]`);
       if (!el) return;
       el.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
     }
 
     function scrollToEnd() {
-      tabbarEl.scrollTo({ left: tabbarEl.scrollWidth, behavior: 'smooth' });
+      const container = tabsHostEl || tabbarEl;
+      if (!container) return;
+      container.scrollTo({ left: container.scrollWidth, behavior: 'smooth' });
     }
   });
 }

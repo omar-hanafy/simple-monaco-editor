@@ -6,16 +6,18 @@
     <link rel="stylesheet" href="./styles.css">
  </head>
  <body>
-   <div id="tabbar">
-     <button id="add-tab" title="New tab (Ctrl/Cmd+T)">＋</button>
-     <!-- tabs will be injected here -->
-   </div>
-
-  <div id="controls">
-     <label for="theme-select"></label><select id="theme-select"></select>
-     <label for="language-select"></label><select id="language-select"></select>
-     <button id="history-button" title="Recently closed (Ctrl/Cmd+Shift+T)">⟲</button>
+  <div id="tabbar">
+    <div id="tabs-scroll" role="tablist" aria-label="Tabs">
+      <!-- tabs will be injected here -->
+    </div>
+    <button id="add-tab" title="New tab (Ctrl/Cmd+T)">＋</button>
   </div>
+
+   <div id="controls">
+     <select id="theme-select" aria-label="Theme"></select>
+     <select id="language-select" aria-label="Language"></select>
+     <button id="history-button" title="Recently closed (Ctrl/Cmd+Shift+T)">⟲</button>
+   </div>
 
   <!-- Recently closed panel -->
   <div id="history-panel" hidden>
