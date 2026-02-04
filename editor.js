@@ -77,7 +77,7 @@ function initializeEditor(customThemes = [], languages = []) {
     function pushClosedHistory(entry) {
       const rec = {
         _hid: entry._hid || (crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())),
-        name: typeof entry.name === 'string' ? entry.name : '',
+        name: normalizeTabName(typeof entry.name === 'string' ? entry.name : ''),
         language: entry.language || 'markdown',
         value: entry.value ?? '',
         color: normalizeColor(entry.color),
@@ -165,7 +165,21 @@ function initializeEditor(customThemes = [], languages = []) {
       if (!historyPanel.contains(t)) historyPanel.hidden = true;
     });
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && historyPanel && !historyPanel.hidden) historyPanel.hidden = true;
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      let handled = false;
+      if (historyPanel && !historyPanel.hidden) {
+        historyPanel.hidden = true;
+        handled = true;
+      }
+      if (colorPaletteState) {
+        closeColorPalette();
+        handled = true;
+      }
+      if (renameState) {
+        cancelRename();
+        handled = true;
+      }
+      if (handled) e.preventDefault();
     });
 
     // ---- Themes ----
@@ -224,6 +238,8 @@ function initializeEditor(customThemes = [], languages = []) {
     let tabs = safeParse(localStorage.getItem(LS_TABS), []);
     let activeTabId = localStorage.getItem(LS_ACTIVE) || null;
     const models = new Map(); // id -> ITextModel
+    let renameState = null;
+    let pendingRenameId = null;
 
     // Helpers
     const uuid = () => (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now() + Math.random());
@@ -241,13 +257,31 @@ function initializeEditor(customThemes = [], languages = []) {
       }
       return fallback;
     };
+    const normalizeTabName = (input, maxLen = 120) => {
+      if (typeof input !== 'string') return '';
+      let name = input.replace(/[\u0000-\u001F\u007F]/g, '');
+      name = name.replace(/\s+/g, ' ').trim();
+      if (name.length > maxLen) name = name.slice(0, maxLen).trim();
+      return name;
+    };
+    const setTabElActiveState = (el, isActive) => {
+      if (!el) return;
+      el.classList.toggle('active', !!isActive);
+      el.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      el.setAttribute('tabindex', isActive ? '0' : '-1');
+    };
+    const TAB_ACTIVATE_THRESHOLD = 6;
+    const isTabInteractiveTarget = (target) => {
+      if (!target || !target.closest) return false;
+      return !!target.closest('.tab-color, .tab-color-palette, .close, .rename-input, button, input, select, textarea');
+    };
 
     if (!Array.isArray(tabs)) tabs = [];
     let tabsNeedPersist = false;
     tabs = tabs.filter(Boolean).map((tab) => {
       const id = tab.id || uuid();
       const color = normalizeColor(tab.color);
-      const name = typeof tab.name === 'string' ? tab.name : '';
+      const name = normalizeTabName(typeof tab.name === 'string' ? tab.name : '');
       const language = tab.language || 'markdown';
       const uri = tab.uri || `inmemory://${id}`;
       const normalized = {
@@ -264,9 +298,18 @@ function initializeEditor(customThemes = [], languages = []) {
       return normalized;
     });
     const setActive = (id) => {
+      if (!id) return;
+      if (renameState && renameState.tabId !== id) {
+        commitRename({ focusEditor: false });
+      }
+      const prevId = activeTabId;
       activeTabId = id;
       localStorage.setItem(LS_ACTIVE, id);
-      updateTabbar();
+      closeColorPalette();
+      const prevEl = tabsHostEl?.querySelector(`.tab[data-id="${prevId}"]`);
+      setTabElActiveState(prevEl, false);
+      const nextEl = tabsHostEl?.querySelector(`.tab[data-id="${id}"]`);
+      setTabElActiveState(nextEl, true);
       const tab = getTab(id);
       const model = ensureModel(tab);
       editor.setModel(model);
@@ -274,6 +317,12 @@ function initializeEditor(customThemes = [], languages = []) {
       fitSelectWidth(languageSelect);
       // ensure the active tab is visible when switching
       ensureActiveTabVisible();
+      if (pendingRenameId === id) {
+        pendingRenameId = null;
+        const nameEl = tabsHostEl?.querySelector(`.tab[data-id="${id}"] .name`);
+        if (nameEl) startInlineRename(tab, nameEl);
+        return;
+      }
       // keep typing flow seamless when switching tabs; put caret at end
       focusEditorAtEnd();
     };
@@ -365,10 +414,11 @@ function initializeEditor(customThemes = [], languages = []) {
     addTabBtn.addEventListener('click', () => { scrollToEndNext = true; createTab(); });
 
     function createTab(name = '', language = localStorage.getItem('editorLanguage') || 'markdown', value = defaultContent(), color = DEFAULT_TAG_COLOR) {
+      commitRename({ focusEditor: false });
       scrollToEndNext = true;
       const id = uuid();
       const uri = `inmemory://${id}`;
-      const safeName = (name || '').trim();
+      const safeName = normalizeTabName(name);
       const safeColor = normalizeColor(color);
       tabs.push({ id, name: safeName, language, uri, color: safeColor });
       persistTabs();
@@ -380,6 +430,7 @@ function initializeEditor(customThemes = [], languages = []) {
     const closedStack = [];
 
     function closeTab(id) {
+      commitRename({ focusEditor: false });
       if (tabs.length === 1) {
         // Always keep at least one tab
         const t = getTab(id);
@@ -437,6 +488,7 @@ function initializeEditor(customThemes = [], languages = []) {
     }
 
     function reopenClosedTab() {
+      commitRename({ focusEditor: false });
       let last = closedStack.pop();
       if (!last) {
         last = closedHistory.shift();
@@ -448,12 +500,26 @@ function initializeEditor(customThemes = [], languages = []) {
       createTab(last.name, last.language, last.value ?? defaultContent(), last.color);
     }
 
-    function renameTab(id, newName) {
+    function renameTab(id, newName, options = {}) {
       const t = getTab(id);
       if (!t) return;
-      t.name = (newName ?? '').trim();
+      const normalized = normalizeTabName(newName);
+      if (t.name === normalized) return;
+      t.name = normalized;
       persistTabs();
-      updateTabbar();
+      if (options.skipDom) return;
+      const tabEl = tabsHostEl?.querySelector(`.tab[data-id="${id}"]`);
+      if (!tabEl) {
+        updateTabbar();
+        return;
+      }
+      tabEl.title = t.name ? t.name : 'Add title';
+      const nameEl = tabEl.querySelector('.name');
+      if (nameEl) {
+        nameEl.textContent = t.name || '';
+        nameEl.classList.toggle('placeholder', !t.name);
+        nameEl.title = t.name ? 'Rename title (Double click or F2)' : 'Add title (Double click or F2)';
+      }
     }
 
     function setTabColor(id, color) {
@@ -516,10 +582,78 @@ function initializeEditor(customThemes = [], languages = []) {
       };
     };
 
+    function createNameSpan(tab) {
+      const nameSpan = document.createElement('span');
+      const hasName = !!tab.name;
+      nameSpan.className = 'name' + (hasName ? '' : ' placeholder');
+      nameSpan.textContent = tab.name || '';
+      nameSpan.title = hasName ? 'Rename title (Double click or F2)' : 'Add title (Double click or F2)';
+      nameSpan.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (tab.id !== activeTabId) {
+          setActive(tab.id);
+        } else {
+          focusEditorAtEnd();
+        }
+      });
+      return nameSpan;
+    }
+
+    function requestRename(id) {
+      const tab = getTab(id);
+      if (!tab) return;
+      if (renameState && renameState.tabId === id) return;
+      if (id !== activeTabId) {
+        pendingRenameId = id;
+        setActive(id);
+        return;
+      }
+      const nameEl = tabsHostEl?.querySelector(`.tab[data-id="${id}"] .name`);
+      if (nameEl) startInlineRename(tab, nameEl);
+    }
+
+    function commitRename(options = {}) {
+      if (!renameState) return;
+      const { tabId, input, tabEl } = renameState;
+      renameState = null;
+      const tab = getTab(tabId);
+      if (tab) {
+        renameTab(tabId, input.value, { skipDom: true });
+        if (input.isConnected) {
+          const nameSpan = createNameSpan(tab);
+          input.replaceWith(nameSpan);
+        }
+        if (tabEl) tabEl.title = tab.name ? tab.name : 'Add title';
+      } else if (input.isConnected) {
+        input.remove();
+      }
+      if (options.focusEditor !== false) {
+        setTimeout(() => focusEditorAtEnd(), 0);
+      }
+    }
+
+    function cancelRename(options = {}) {
+      if (!renameState) return;
+      const { tabId, input, tabEl } = renameState;
+      renameState = null;
+      const tab = getTab(tabId);
+      if (tab && input.isConnected) {
+        const nameSpan = createNameSpan(tab);
+        input.replaceWith(nameSpan);
+        if (tabEl) tabEl.title = tab.name ? tab.name : 'Add title';
+      } else if (input.isConnected) {
+        input.remove();
+      }
+      if (options.focusEditor !== false) {
+        setTimeout(() => focusEditorAtEnd(), 0);
+      }
+    }
+
     function updateTabbar() {
       const container = tabsHostEl;
       if (!container) return;
 
+      if (renameState) commitRename({ focusEditor: false });
       closeColorPalette();
 
       [...container.querySelectorAll('.tab')].forEach(n => n.remove());
@@ -527,9 +661,11 @@ function initializeEditor(customThemes = [], languages = []) {
       tabs.forEach(tab => {
         const colorValue = normalizeColor(tab.color);
         const el = document.createElement('div');
-        el.className = 'tab' + (tab.id === activeTabId ? ' active' : '') + (tab._dirty ? ' dirty' : '');
+        el.className = 'tab' + (tab._dirty ? ' dirty' : '');
         el.dataset.id = tab.id;
         el.title = tab.name ? tab.name : 'Add title';
+        el.setAttribute('role', 'tab');
+        setTabElActiveState(el, tab.id === activeTabId);
 
         const dot = document.createElement('span');
         dot.className = 'dirty-dot';
@@ -540,7 +676,7 @@ function initializeEditor(customThemes = [], languages = []) {
         tagBtn.className = 'tab-color';
         tagBtn.style.setProperty('--tag-color', colorValue);
         tagBtn.style.backgroundColor = colorValue;
-        tagBtn.title = 'Change tab color (Alt+click for presets)';
+        tagBtn.title = 'Change tab color (Alt click to cycle, Shift click to reset)';
         el.appendChild(tagBtn);
 
         const cyclePreset = () => {
@@ -553,6 +689,12 @@ function initializeEditor(customThemes = [], languages = []) {
 
         tagBtn.addEventListener('click', (event) => {
           event.stopPropagation();
+          if (event.shiftKey) {
+            event.preventDefault();
+            setTabColor(tab.id, DEFAULT_TAG_COLOR);
+            closeColorPalette();
+            return;
+          }
           if (event.altKey) {
             event.preventDefault();
             cyclePreset();
@@ -560,19 +702,13 @@ function initializeEditor(customThemes = [], languages = []) {
           }
           openColorPalette(tagBtn, tab);
         });
-
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'name' + (tab.name ? '' : ' placeholder');
-        nameSpan.textContent = tab.name || '';
-        nameSpan.title = tab.name ? 'Rename title' : 'Add title';
-        nameSpan.addEventListener('click', (event) => {
+        tagBtn.addEventListener('contextmenu', (event) => {
+          event.preventDefault();
           event.stopPropagation();
-          if (tab.id !== activeTabId) {
-            setActive(tab.id);
-            return;
-          }
-          startInlineRename(tab, nameSpan);
+          openColorPalette(tagBtn, tab);
         });
+
+        const nameSpan = createNameSpan(tab);
         el.appendChild(nameSpan);
 
         const close = document.createElement('span');
@@ -585,7 +721,61 @@ function initializeEditor(customThemes = [], languages = []) {
         });
         el.appendChild(close);
 
-        el.addEventListener('click', () => setActive(tab.id));
+        let downState = null;
+        const onPointerDown = (event) => {
+          if (event.button !== 0) return;
+          if (isTabInteractiveTarget(event.target)) return;
+          downState = { id: event.pointerId, x: event.clientX, y: event.clientY };
+        };
+        const onPointerUp = (event) => {
+          if (!downState || downState.id !== event.pointerId) return;
+          const dx = event.clientX - downState.x;
+          const dy = event.clientY - downState.y;
+          downState = null;
+          if (Math.hypot(dx, dy) <= TAB_ACTIVATE_THRESHOLD) {
+            setActive(tab.id);
+          }
+        };
+        const onPointerCancel = (event) => {
+          if (downState && downState.id === event.pointerId) downState = null;
+        };
+        const onMouseDown = (event) => {
+          if (event.button !== 0) return;
+          if (isTabInteractiveTarget(event.target)) return;
+          downState = { x: event.clientX, y: event.clientY };
+        };
+        const onMouseUp = (event) => {
+          if (!downState) return;
+          const dx = event.clientX - downState.x;
+          const dy = event.clientY - downState.y;
+          downState = null;
+          if (Math.hypot(dx, dy) <= TAB_ACTIVATE_THRESHOLD) {
+            setActive(tab.id);
+          }
+        };
+        const onMouseLeave = () => { downState = null; };
+
+        if ('PointerEvent' in window) {
+          el.addEventListener('pointerdown', onPointerDown);
+          el.addEventListener('pointerup', onPointerUp);
+          el.addEventListener('pointercancel', onPointerCancel);
+        } else {
+          el.addEventListener('mousedown', onMouseDown);
+          el.addEventListener('mouseup', onMouseUp);
+          el.addEventListener('mouseleave', onMouseLeave);
+        }
+
+        el.addEventListener('click', (event) => {
+          if (event.defaultPrevented) return;
+          if (isTabInteractiveTarget(event.target)) return;
+          setActive(tab.id);
+        });
+        el.addEventListener('dblclick', (event) => {
+          if (event.defaultPrevented) return;
+          if (isTabInteractiveTarget(event.target)) return;
+          event.preventDefault();
+          requestRename(tab.id);
+        });
 
         container.appendChild(el);
       });
@@ -606,35 +796,31 @@ function initializeEditor(customThemes = [], languages = []) {
     }
 
     function startInlineRename(tab, nameSpan) {
-      // Replace name span with an input for quick inline rename
+      if (!tab || !nameSpan || renameState) return;
       const input = document.createElement('input');
       input.type = 'text';
       input.className = 'rename-input';
       input.value = tab.name;
       input.setAttribute('maxlength', '120');
+      input.setAttribute('aria-label', 'Rename tab');
+      input.placeholder = 'Untitled';
       // size and style to fit
       const width = Math.max(nameSpan.offsetWidth, 80);
       input.style.width = width + 'px';
       input.style.minWidth = '40px';
+      const tabEl = nameSpan.closest('.tab');
       nameSpan.replaceWith(input);
       input.focus();
       input.select();
+      input.addEventListener('click', (e) => e.stopPropagation());
 
-      const commit = () => {
-        renameTab(tab.id, input.value);
-        // return focus to the editor so user can type immediately at end
-        setTimeout(() => focusEditorAtEnd(), 0);
-      };
-      const cancel = () => {
-        updateTabbar();
-        setTimeout(() => focusEditorAtEnd(), 0);
-      };
+      renameState = { tabId: tab.id, input, tabEl };
 
       input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); commit(); }
-        else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+        if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+        else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
       });
-      input.addEventListener('blur', commit);
+      input.addEventListener('blur', () => commitRename());
     }
 
     // ---- Keybindings ----
@@ -645,6 +831,8 @@ function initializeEditor(customThemes = [], languages = []) {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => closeTab(activeTabId));
     // Reopen Closed (Cmd/Ctrl + Shift + T)
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyT, () => reopenClosedTab());
+    // Rename Tab (F2)
+    editor.addCommand(monaco.KeyCode.F2, () => requestRename(activeTabId));
 
     // Helpers for cycling
     const cycleNext = () => {
@@ -686,6 +874,15 @@ function initializeEditor(customThemes = [], languages = []) {
       }
     }, { capture: true });
 
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'F2' || e.defaultPrevented) return;
+      const target = e.target;
+      const tag = target && target.tagName ? target.tagName.toLowerCase() : '';
+      if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return;
+      e.preventDefault();
+      requestRename(activeTabId);
+    }, { capture: true });
+
     const scrollEl = tabsHostEl || tabbarEl;
     if (scrollEl) {
       let scrollbarFadeTimeout = null;
@@ -720,6 +917,8 @@ function initializeEditor(customThemes = [], languages = []) {
       let panPointerId = null;
       let panStartX = 0;
       let panStartScroll = 0;
+      let panActive = false;
+      const PAN_ACTIVATE_THRESHOLD = 6;
       scrollEl.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
         if (scrollEl.scrollWidth <= scrollEl.clientWidth) return;
@@ -738,21 +937,29 @@ function initializeEditor(customThemes = [], languages = []) {
         panPointerId = e.pointerId;
         panStartX = e.clientX;
         panStartScroll = scrollEl.scrollLeft;
-        scrollEl.setPointerCapture(panPointerId);
-        scrollEl.classList.add('panning');
-        bumpScrollbarVisibility();
+        panActive = false;
       });
       scrollEl.addEventListener('pointermove', (e) => {
         if (panPointerId == null || e.pointerId !== panPointerId) return;
         const delta = e.clientX - panStartX;
+        if (!panActive) {
+          if (Math.abs(delta) < PAN_ACTIVATE_THRESHOLD) return;
+          panActive = true;
+          scrollEl.setPointerCapture(panPointerId);
+          scrollEl.classList.add('panning');
+          bumpScrollbarVisibility();
+        }
         scrollEl.scrollLeft = panStartScroll - delta;
         bumpScrollbarVisibility();
       });
       const endPan = (e) => {
         if (panPointerId == null || e.pointerId !== panPointerId) return;
-        scrollEl.releasePointerCapture(panPointerId);
-        scrollEl.classList.remove('panning');
+        if (panActive) {
+          scrollEl.releasePointerCapture(panPointerId);
+          scrollEl.classList.remove('panning');
+        }
         panPointerId = null;
+        panActive = false;
         bumpScrollbarVisibility();
       };
       scrollEl.addEventListener('pointerup', endPan);
