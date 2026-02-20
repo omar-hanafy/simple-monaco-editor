@@ -54,6 +54,26 @@ html, body {
     font-family: var(--ui-mono);
 }
 
+#controls button {
+    width: var(--ui-tab-h);
+    height: var(--ui-tab-h);
+    padding: 0;
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-tab-r);
+    cursor: pointer;
+    background: var(--ui-surface);
+    color: var(--ui-fg);
+    font-family: var(--ui-mono);
+    font-size: 16px;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+#controls button:hover { background: var(--ui-surface-hover); }
+#controls button:active { background: var(--ui-surface-active); }
+
 #controls select {
     margin: 0;
     padding: 0 6px;
@@ -282,25 +302,7 @@ html, body {
 }
 
 /* --- Recently closed: button + panel --- */
-#history-button {
-    height: var(--ui-tab-h);
-    width: var(--ui-tab-h);
-    min-width: var(--ui-tab-h);
-    line-height: 1;
-    padding: 0;
-    border: 1px solid var(--ui-border);
-    border-radius: var(--ui-tab-r);
-    cursor: pointer;
-    background: var(--ui-surface);
-    color: var(--ui-fg);
-    font-family: var(--ui-mono);
-    font-size: 16px;
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-#history-button:hover { background: var(--ui-surface-hover); }
+#history-button { min-width: var(--ui-tab-h); }
 
 /* Panel floats just above the controls block */
 #history-panel {

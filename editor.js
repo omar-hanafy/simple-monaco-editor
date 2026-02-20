@@ -36,6 +36,7 @@ function initializeEditor(customThemes = [], languages = []) {
     const tabsScrollEl = document.getElementById('tabs-scroll');
     const addTabBtn = document.getElementById('add-tab');
     const historyBtn   = document.getElementById('history-button');
+    const saveButton   = document.getElementById('save-button');
     const historyPanel = document.getElementById('history-panel');
     const historyList  = document.getElementById('history-list');
     const historyClear = document.getElementById('history-clear');
@@ -384,6 +385,89 @@ function initializeEditor(customThemes = [], languages = []) {
       saveTimeouts.set(id, to);
     };
 
+    // ---- Export helpers ----
+    const sanitizeExportName = (value) => {
+      const trimmed = normalizeTabName(value || '');
+      const clean = trimmed.replace(/[\u0000-\u001F\u007F/\\?%*:|"<>;=']/g, '_').trim();
+      return clean || 'document';
+    };
+
+    const ensureTxtExt = (name) => {
+      const n = (name || '').trim();
+      if (!n) return 'document.txt';
+      return n.toLowerCase().endsWith('.txt') ? n : `${n}.txt`;
+    };
+
+    const defaultFileName = () => {
+      const tab = getTab(activeTabId);
+      const dateSuffix = new Date().toISOString().replace(/[:.]/g, '-');
+      return `${sanitizeExportName(tab?.name || 'document')}-${dateSuffix}.txt`;
+    };
+
+    function base64EncodeUtf8(str) {
+      const bytes = new TextEncoder().encode(str);
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      return btoa(binary);
+    }
+
+    async function saveToHomeViaBTT(fileName, text) {
+      const safeName = ensureTxtExt(sanitizeExportName(fileName));
+      const b64 = base64EncodeUtf8(text);
+
+      const script = `python3 - <<'PY'
+import base64, pathlib, re
+
+home = pathlib.Path.home()
+
+name = """${safeName}"""
+name = re.sub(r"[\\\\/]", "_", name).strip() or "document.txt"
+if not name.lower().endswith(".txt"):
+    name += ".txt"
+
+data = base64.b64decode("""${b64}""")
+
+path = home / name
+stem, suffix = path.stem, path.suffix
+i = 1
+while path.exists():
+    path = home / f"{stem}-{i}{suffix}"
+    i += 1
+
+path.write_bytes(data)
+print(str(path))
+PY`;
+
+      const result = await window.runShellScript({
+        script,
+        launchPath: '/bin/bash',
+        parameters: '-c',
+      });
+
+      if (typeof window.display_notification === 'function') {
+        await window.display_notification({
+          title: 'Saved',
+          subTitle: (result || '').trim(),
+        });
+      }
+
+      return result;
+    }
+
+    const saveCurrentTextAsFile = async () => {
+      if (typeof window.runShellScript !== 'function') return;
+      const value = editor.getModel()?.getValue() ?? '';
+      const finalName = defaultFileName();
+      try {
+        await saveToHomeViaBTT(finalName, value);
+      } catch (err) {
+        console.error('BTT save failed:', err);
+      }
+    };
+
     editor.onDidChangeModelContent(() => {
       // mark dirty immediately for active tab without full rerender
       const t = getTab(activeTabId);
@@ -412,6 +496,7 @@ function initializeEditor(customThemes = [], languages = []) {
     });
 
     addTabBtn.addEventListener('click', () => { scrollToEndNext = true; createTab(); });
+    saveButton?.addEventListener('click', () => { saveCurrentTextAsFile(); });
 
     function createTab(name = '', language = localStorage.getItem('editorLanguage') || 'markdown', value = defaultContent(), color = DEFAULT_TAG_COLOR) {
       commitRename({ focusEditor: false });
